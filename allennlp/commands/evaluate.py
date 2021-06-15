@@ -80,6 +80,13 @@ class Evaluate(Subcommand):
 
         subparser.add_argument('--output-file', type=str, help='path to output file')
 
+        subparser.add_argument(
+            "--predictions-output-file",
+            default=None,
+            type=str,
+            help="optional path to write the predictions to as JSON lines",
+        )
+
         subparser.add_argument('--weights-file',
                                type=str,
                                help='a path that overrides which weights file to use')
@@ -87,7 +94,7 @@ class Evaluate(Subcommand):
         cuda_device = subparser.add_mutually_exclusive_group(required=False)
         cuda_device.add_argument('--cuda-device',
                                  type=int,
-                                 default=-1,
+                                 default=0,
                                  help='id of GPU to use (if any)')
 
         subparser.add_argument('-o', '--overrides',
@@ -155,10 +162,13 @@ def evaluate_from_args(args: argparse.Namespace) -> Dict[str, Any]:
     iterator_params = config.pop("validation_iterator", None)
     if iterator_params is None:
         iterator_params = config.pop("iterator")
+        # so that order of predictions is same as that in the evaluation file
+        iterator_params['type']  = 'basic'
+        del iterator_params['sorting_keys']
     iterator = DataIterator.from_params(iterator_params)
     iterator.index_with(model.vocab)
 
-    metrics = evaluate(model, instances, iterator, args.cuda_device, args.batch_weight_key)
+    metrics = evaluate(model, instances, iterator, args.cuda_device, args.batch_weight_key, predictions_output_file=args.predictions_output_file)
 
     logger.info("Finished evaluating.")
     logger.info("Metrics:")

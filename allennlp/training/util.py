@@ -16,6 +16,7 @@ from torch.nn.parallel.scatter_gather import gather
 from allennlp.common.checks import ConfigurationError, check_for_gpu
 from allennlp.common.params import Params
 from allennlp.common.tqdm import Tqdm
+from allennlp.common.util import sanitize
 from allennlp.data.dataset_readers import DatasetReader
 from allennlp.data import Instance
 from allennlp.data.iterators import DataIterator
@@ -368,8 +369,16 @@ def evaluate(model: Model,
              instances: Iterable[Instance],
              data_iterator: DataIterator,
              cuda_device: int,
-             batch_weight_key: str) -> Dict[str, Any]:
+             batch_weight_key: str,
+             predictions_output_file: str = None,) -> Dict[str, Any]:
     check_for_gpu(cuda_device)
+
+    predictions_file = (
+        None if predictions_output_file is None else open(predictions_output_file, "w")
+    )
+    all_predictions_str = []
+    all_golds_str = []
+
     with torch.no_grad():
         model.eval()
 
@@ -416,6 +425,15 @@ def evaluate(model: Model,
             description = ', '.join(["%s: %.2f" % (name, value) for name, value
                                      in metrics.items() if not name.startswith("_")]) + " ||"
             generator_tqdm.set_description(description, refresh=False)
+            if predictions_file is not None:
+                golds_batch_str, predictions_batch_str = model.make_output_human_readable(output_dict)
+                all_predictions_str.extend(predictions_batch_str)
+                all_golds_str.extend(golds_batch_str)
+                #predictions_file.write(predictions + "\n")
+        if predictions_file is not None:
+            for i, pred in enumerate(all_predictions_str):
+                predictions_file.write(pred + '\t' + all_golds_str[i] + '\n')
+            predictions_file.close()
 
         final_metrics = model.get_metrics(reset=True)
         if loss_count > 0:

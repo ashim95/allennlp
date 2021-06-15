@@ -268,7 +268,7 @@ class PretrainedBertEmbedder(BertEmbedder):
     def __init__(self, pretrained_model: str, requires_grad: bool = False, top_layer_only: bool = False,
                  scalar_mix_parameters: List[float] = None) -> None:
         model = PretrainedBertModel.load(pretrained_model)
-
+        print("BERT requires_grad: ", requires_grad)
         for param in model.parameters():
             param.requires_grad = requires_grad
 
