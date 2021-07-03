@@ -25,6 +25,8 @@ from allennlp.models.model import Model
 from allennlp.models.archival import CONFIG_NAME
 from allennlp.nn import util as nn_util
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 # We want to warn people that tqdm ignores metrics that start with underscores
@@ -444,6 +446,91 @@ def evaluate(model: Model,
             final_metrics["loss"] = total_loss / total_weight
 
         return final_metrics
+
+def predict(model: Model,
+             instances: Iterable[Instance],
+             data_iterator: DataIterator,
+             cuda_device: int,
+             batch_weight_key: str,
+             torch_tensor=True,
+             provide_scores=True) -> Dict[str, Any]:
+    check_for_gpu(cuda_device)
+
+    all_predictions_str = []
+    all_golds_str = []
+
+    output_probs = None
+
+    with torch.no_grad():
+        model.eval()
+
+        iterator = data_iterator(instances,
+                                 num_epochs=1,
+                                 shuffle=False)
+        logger.info("Iterating over dataset")
+        #generator_tqdm = Tqdm.tqdm(iterator, total=data_iterator.get_num_batches(instances))
+
+        # Number of batches in instances.
+        batch_count = 0
+        # Number of batches where the model produces a loss.
+        loss_count = 0
+        # Cumulative weighted loss
+        total_loss = 0.0
+        # Cumulative weight across all batches.
+        total_weight = 0.0
+
+        for batch in iterator:
+            batch_count += 1
+            batch = nn_util.move_to_device(batch, cuda_device)
+            output_dict = model(**batch)
+            loss = output_dict.get("loss")
+
+            metrics = model.get_metrics()
+
+            if loss is not None:
+                loss_count += 1
+                if batch_weight_key:
+                    weight = output_dict[batch_weight_key].item()
+                else:
+                    weight = 1.0
+
+                total_weight += weight
+                total_loss += loss.item() * weight
+                # Report the average loss so far.
+                metrics["loss"] = total_loss / total_weight
+
+            if (not HasBeenWarned.tqdm_ignores_underscores and
+                        any(metric_name.startswith("_") for metric_name in metrics)):
+                logger.warning("Metrics with names beginning with \"_\" will "
+                               "not be logged to the tqdm progress bar.")
+                HasBeenWarned.tqdm_ignores_underscores = True
+            description = ', '.join(["%s: %.2f" % (name, value) for name, value
+                                     in metrics.items() if not name.startswith("_")]) + " ||"
+            #generator_tqdm.set_description(description, refresh=False)
+            # process output_dict to return output_probs
+            if not torch_tensor:
+            # Get numpy
+                if provide_scores:
+                    class_probabilities = output_dict["logits"].cpu().data.numpy()
+                else:
+                    class_probabilities = torch.nn.functional.softmax(output_dict["logits"], dim=-1).cpu().data.numpy()
+                if output_probs is None:
+                    output_probs = class_probabilities
+                else:
+                    output_probs = np.concatenate((output_probs, class_probabilities), axis=0)
+            else:
+                # Get torch
+                if provide_scores:
+                    class_probabilities = output_dict["logits"]
+                else:
+                    class_probabilities = torch.nn.functional.softmax(output_dict["logits"], dim=-1)
+                if output_probs is None:
+                    output_probs = class_probabilities
+                else:
+                    output_probs = torch.cat([output_probs, class_probabilities], 0)
+
+    return output_probs
+
 
 def description_from_metrics(metrics: Dict[str, float]) -> str:
     if (not HasBeenWarned.tqdm_ignores_underscores and
