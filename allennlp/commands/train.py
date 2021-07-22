@@ -230,9 +230,9 @@ def train_model(params: Params,
                 iterator=pieces.iterator,
                 train_data=pieces.train_dataset,
                 validation_data=pieces.validation_dataset,
+                augment_data=pieces.augment_dataset,
                 params=pieces.params,
                 validation_iterator=pieces.validation_iterator)
-
         evaluation_iterator = pieces.validation_iterator or pieces.iterator
         evaluation_dataset = pieces.test_dataset
 

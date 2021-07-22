@@ -29,6 +29,7 @@ class TrainerPieces(NamedTuple):
     train_dataset: Iterable[Instance]
     validation_dataset: Iterable[Instance]
     test_dataset: Iterable[Instance]
+    augment_dataset: Iterable[Instance]
     validation_iterator: DataIterator
     params: Params
 
@@ -83,6 +84,7 @@ class TrainerPieces(NamedTuple):
         train_data = all_datasets['train']
         validation_data = all_datasets.get('validation')
         test_data = all_datasets.get('test')
+        augment_data = all_datasets.get('augment')
 
         trainer_params = params.pop("trainer")
         no_grad_regexes = trainer_params.pop("no_grad", ())
@@ -100,5 +102,5 @@ class TrainerPieces(NamedTuple):
             logger.info(name)
 
         return cls(model, iterator,
-                   train_data, validation_data, test_data,
+                   train_data, validation_data, test_data, augment_data,
                    validation_iterator, trainer_params)

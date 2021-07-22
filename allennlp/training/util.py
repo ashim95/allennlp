@@ -167,7 +167,10 @@ def datasets_from_params(params: Params,
 
     dataset_reader = DatasetReader.from_params(dataset_reader_params)
 
+    augment_dataset_reader = dataset_reader
+    augment_data = augment_dataset_reader.read_augmentation_file("")
     validation_and_test_dataset_reader: DatasetReader = dataset_reader
+
     if validation_dataset_reader_params is not None:
         logger.info("Using a separate dataset reader to load validation and test data.")
         validation_and_test_dataset_reader = DatasetReader.from_params(validation_dataset_reader_params)
@@ -177,10 +180,27 @@ def datasets_from_params(params: Params,
         validation_and_test_dataset_reader.cache_data(validation_cache_dir)
 
     train_data_path = params.pop('train_data_path')
+
+    augmentation_type = params.pop('augmentation')
+    augmentation_ratio = params.pop('augmentation_ratio')
+    augmentation_path = params.pop('augmentation_path')
+    augmentation_seed = params.pop('augmentation_seed')
+    augmentation_sampling = params.pop('augmentation_sampling')
+
     logger.info("Reading training data from %s", train_data_path)
     train_data = dataset_reader.read(train_data_path)
 
     datasets: Dict[str, Iterable[Instance]] = {"train": train_data}
+
+    if augmentation_type.lower() != 'none':
+        logger.info("Reading augmentation data from %s", augmentation_path)
+        augs = augment_dataset_reader.read_augmentation_file(augmentation_path,
+                                                             augmentation_ratio=augmentation_ratio,
+                                                             seed=augmentation_seed,
+                                                             augmentation_sampling=augmentation_sampling)
+        augment_data = [instance for instance in Tqdm.tqdm(augs)]
+        datasets["augment"] = augment_data
+
 
     validation_data_path = params.pop('validation_data_path', None)
     if validation_data_path is not None:

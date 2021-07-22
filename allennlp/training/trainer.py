@@ -40,6 +40,7 @@ class Trainer(TrainerBase):
                  iterator: DataIterator,
                  train_dataset: Iterable[Instance],
                  validation_dataset: Optional[Iterable[Instance]] = None,
+                 augment_dataset: Optional[Iterable[Instance]] = None,
                  patience: Optional[int] = None,
                  validation_metric: str = "-loss",
                  validation_iterator: DataIterator = None,
@@ -60,7 +61,8 @@ class Trainer(TrainerBase):
                  should_log_parameter_statistics: bool = True,
                  should_log_learning_rate: bool = False,
                  log_batch_size_period: Optional[int] = None,
-                 moving_average: Optional[MovingAverage] = None) -> None:
+                 moving_average: Optional[MovingAverage] = None,
+                 training_arrangement: str = None) -> None:
         """
         A trainer for doing supervised learning. It just takes a labeled dataset
         and a ``DataIterator``, and uses the supplied ``Optimizer`` to learn the weights
@@ -183,7 +185,10 @@ class Trainer(TrainerBase):
         self.shuffle = shuffle
         self.optimizer = optimizer
         self.train_data = train_dataset
+        self.augment_data = augment_dataset
         self._validation_data = validation_dataset
+
+        self.training_arrangement = training_arrangement
 
         if patience is None:  # no early stopping
             if validation_dataset:
@@ -290,12 +295,28 @@ class Trainer(TrainerBase):
 
         num_gpus = len(self._cuda_devices)
 
+        logger.info('Training Arrangement %s', self.training_arrangement)
+
         # Get tqdm for the training batches
-        raw_train_generator = self.iterator(self.train_data,
+
+        all_data = []
+        all_data.extend(self.train_data)
+        if self.training_arrangement == 'mixed':
+            if self.augment_data and len(self.augment_data) > 0:
+                logger.info('Augmentation data present for this epoch in mixed arrangement with size %s', str(len(self.augment_data)))
+                all_data.extend(self.augment_data)
+
+        logger.info('Total number of training examples (including any augmentation examples if present) %s', str(len(all_data)))
+        #raw_train_generator = self.iterator(self.train_data,
+        #                                    num_epochs=1,
+        #                                    shuffle=self.shuffle)
+
+        raw_train_generator = self.iterator(all_data,
                                             num_epochs=1,
                                             shuffle=self.shuffle)
         train_generator = lazy_groups_of(raw_train_generator, num_gpus)
-        num_training_batches = math.ceil(self.iterator.get_num_batches(self.train_data)/num_gpus)
+        #num_training_batches = math.ceil(self.iterator.get_num_batches(self.train_data)/num_gpus)
+        num_training_batches = math.ceil(self.iterator.get_num_batches(all_data)/num_gpus)
         self._last_log = time.time()
         last_save_time = time.time()
 
@@ -662,6 +683,7 @@ class Trainer(TrainerBase):
                     iterator: DataIterator,
                     train_data: Iterable[Instance],
                     validation_data: Optional[Iterable[Instance]],
+                    augment_data: Optional[Iterable[Instance]],
                     params: Params,
                     validation_iterator: DataIterator = None) -> 'Trainer':
         # pylint: disable=arguments-differ
@@ -674,6 +696,9 @@ class Trainer(TrainerBase):
         grad_clipping = params.pop_float("grad_clipping", None)
         lr_scheduler_params = params.pop("learning_rate_scheduler", None)
         momentum_scheduler_params = params.pop("momentum_scheduler", None)
+
+        # Training Arrangement: how to merge augmented examples
+        training_arrangement = params.pop("training_arrangement", None)
 
         if isinstance(cuda_device, list):
             model_device = cuda_device[0]
@@ -725,7 +750,7 @@ class Trainer(TrainerBase):
 
         params.assert_empty(cls.__name__)
         return cls(model, optimizer, iterator,
-                   train_data, validation_data,
+                   train_data, validation_data, augment_data,
                    patience=patience,
                    validation_metric=validation_metric,
                    validation_iterator=validation_iterator,
@@ -744,4 +769,5 @@ class Trainer(TrainerBase):
                    should_log_parameter_statistics=should_log_parameter_statistics,
                    should_log_learning_rate=should_log_learning_rate,
                    log_batch_size_period=log_batch_size_period,
-                   moving_average=moving_average)
+                   moving_average=moving_average,
+                   training_arrangement=training_arrangement)
