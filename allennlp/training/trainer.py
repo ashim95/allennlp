@@ -28,6 +28,7 @@ from allennlp.training.tensorboard_writer import TensorboardWriter
 from allennlp.training.trainer_base import TrainerBase
 from allennlp.training import util as training_util
 from allennlp.training.moving_average import MovingAverage
+from allennlp.training.curriculum_learning import Curriculum
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -62,7 +63,9 @@ class Trainer(TrainerBase):
                  should_log_learning_rate: bool = False,
                  log_batch_size_period: Optional[int] = None,
                  moving_average: Optional[MovingAverage] = None,
-                 training_arrangement: str = None) -> None:
+                 training_arrangement: str = None,
+                 curriculum_type: str = "opposite_naive",
+                 curriculum_init_train_till_convergence: bool = False) -> None:
         """
         A trainer for doing supervised learning. It just takes a labeled dataset
         and a ``DataIterator``, and uses the supplied ``Optimizer`` to learn the weights
@@ -190,6 +193,9 @@ class Trainer(TrainerBase):
 
         self.training_arrangement = training_arrangement
 
+        if self.training_arrangement == 'mixed':
+            curriculum_type = 'none'
+
         if patience is None:  # no early stopping
             if validation_dataset:
                 logger.warning('You provided a validation dataset but patience was set to None, '
@@ -249,6 +255,10 @@ class Trainer(TrainerBase):
         if histogram_interval is not None:
             self._tensorboard.enable_activation_logging(self.model)
 
+        self.curriculum = Curriculum(train_data=self.train_data,
+                                     augment_data=self.augment_data,
+                                     num_stages=10, cl_type=curriculum_type, init_stage_till_convergence=curriculum_init_train_till_convergence)
+
     def rescale_gradients(self) -> Optional[float]:
         return training_util.rescale_gradients(self.model, self._grad_norm)
 
@@ -302,9 +312,14 @@ class Trainer(TrainerBase):
         all_data = []
         all_data.extend(self.train_data)
         if self.training_arrangement == 'mixed':
+            self.curriculum.function() # call none curriculum
             if self.augment_data and len(self.augment_data) > 0:
                 logger.info('Augmentation data present for this epoch in mixed arrangement with size %s', str(len(self.augment_data)))
                 all_data.extend(self.augment_data)
+
+        elif self.training_arrangement == 'curriculum':
+            logger.info('Running curriculum learning')
+            all_data = self.curriculum.function()
 
         logger.info('Total number of training examples (including any augmentation examples if present) %s', str(len(all_data)))
         #raw_train_generator = self.iterator(self.train_data,
@@ -516,9 +531,20 @@ class Trainer(TrainerBase):
                     this_epoch_val_metric = val_metrics[self._validation_metric]
                     self._metric_tracker.add_metric(this_epoch_val_metric)
 
+                    # if curriculum has not completed, set the early stopping iterator inside metric tracker to 0.
+                    if not self.curriculum.is_complete() and not self.curriculum.init_stage_till_convergence:
+                        self._metric_tracker._epochs_with_no_improvement = 0
+
+
                     if self._metric_tracker.should_stop_early():
-                        logger.info("Ran out of patience.  Stopping training.")
-                        break
+                        if self.curriculum.init_stage_till_convergence and not self.curriculum.init_model_converged:
+                            logger.info("Ran out of patience.  On initial stage of training. Now moving to next stages")
+                            self._metric_tracker._epochs_with_no_improvement = 0
+                            self.curriculum.init_stage_till_convergence = False
+                            self.curriculum.init_model_converged = True
+                        else:
+                            logger.info("Ran out of patience.  Stopping training.")
+                            break
 
             self._tensorboard.log_metrics(train_metrics,
                                           val_metrics=val_metrics,
