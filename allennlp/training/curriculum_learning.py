@@ -11,6 +11,13 @@ from copy import deepcopy
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
+function_mapping = {
+        'sort_by_length_asc': (lambda examples: group_by_length_of_sents(examples, reverse=False)),
+        'sort_by_length_dsc': (lambda examples: group_by_length_of_sents(examples, reverse=True)),
+        'sort_by_dist_entities_asc': (lambda examples: group_by_distance_between_entities(examples, reverse=False)),
+        'sort_by_dist_entities_dsc': (lambda examples: group_by_distance_between_entities(examples, reverse=True)),
+        }
+
 
 class Curriculum:
 
@@ -92,7 +99,7 @@ class Curriculum:
             return subj_0 - obj_1
 
 
-    def group_by_length_of_sents(self, examples):
+    def group_by_length_of_sents(self, examples, reverse=False):
 
         len_tuples = []
 
@@ -100,11 +107,11 @@ class Curriculum:
             l = len(ex.fields['text'].tokens)
             len_tuples.append((ex, l))
 
-        sorted_list, _ = zip(*sorted(len_tuples, key=lambda x: x[1], reverse=True))
+        sorted_list, _ = zip(*sorted(len_tuples, key=lambda x: x[1], reverse=reverse))
         return sorted_list
 
 
-    def group_by_distance_between_entities(self, examples):
+    def group_by_distance_between_entities(self, examples, reverse=False):
 
         len_tuples = []
 
@@ -112,7 +119,7 @@ class Curriculum:
             l = self.len_between_entities(ex.fields['head'].span_start, ex.fields['head'].span_end, ex.fields['tail'].span_start, ex.fields['tail'].span_end)
             len_tuples.append((ex, l))
 
-        sorted_list, _ = zip(*sorted(len_tuples, key=lambda x: x[1], reverse=True))
+        sorted_list, _ = zip(*sorted(len_tuples, key=lambda x: x[1], reverse=reverse))
         return sorted_list
 
     def naive_curriculum(self):
@@ -194,4 +201,35 @@ class Curriculum:
 
 
 
+
+def len_between_entities(subj_0, subj_1, obj_0, obj_1):
+
+    if subj_0 < obj_0:
+        return obj_0 - subj_1
+    else:
+        return subj_0 - obj_1
+
+
+def group_by_length_of_sents(examples, reverse=False):
+
+    len_tuples = []
+
+    for ex in examples:
+        l = len(ex.fields['text'].tokens)
+        len_tuples.append((ex, l))
+
+    sorted_list, _ = zip(*sorted(len_tuples, key=lambda x: x[1], reverse=reverse))
+    return sorted_list
+
+
+def group_by_distance_between_entities(examples, reverse=False):
+
+    len_tuples = []
+
+    for ex in examples:
+        l = len_between_entities(ex.fields['head'].span_start, ex.fields['head'].span_end, ex.fields['tail'].span_start, ex.fields['tail'].span_end)
+        len_tuples.append((ex, l))
+
+    sorted_list, _ = zip(*sorted(len_tuples, key=lambda x: x[1], reverse=reverse))
+    return sorted_list
 

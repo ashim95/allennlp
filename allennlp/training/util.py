@@ -473,13 +473,16 @@ def predict(model: Model,
              cuda_device: int,
              batch_weight_key: str,
              torch_tensor=True,
-             provide_scores=True) -> Dict[str, Any]:
+             provide_scores=True,
+             return_golds=False) -> Dict[str, Any]:
     check_for_gpu(cuda_device)
 
     all_predictions_str = []
     all_golds_str = []
 
     output_probs = None
+    output_golds = None
+
 
     with torch.no_grad():
         model.eval()
@@ -546,9 +549,12 @@ def predict(model: Model,
                     class_probabilities = torch.nn.functional.softmax(output_dict["logits"], dim=-1)
                 if output_probs is None:
                     output_probs = class_probabilities
+                    output_golds = output_dict['golds']
                 else:
                     output_probs = torch.cat([output_probs, class_probabilities], 0)
-
+                    output_golds = torch.cat([output_golds, output_dict['golds']], 0)
+    if return_golds:
+        return output_probs, output_golds
     return output_probs
 
 

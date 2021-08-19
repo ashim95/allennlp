@@ -734,10 +734,38 @@ class Trainer(TrainerBase):
             groups_scores.append((key, self.eval_score(g, p)))
         return groups_scores
 
+    def create_groups(self, preds, golds, metric_values):
+        groups = {}
+        min_ = min(metric_values)
+        max_ = max(metric_values)
+
+        width = (max_ - min_) // 10
+
+        limits = []
+        for i in range(10):
+            limits.append(min_ + (i+1)*width)
+
+        #equal width
+        a = len(metric_values)
+        w = int((max(metric_values) - min(metric_values)) / 10)
+        min1 = min(metric_values)
+        arr = []
+        for i in range(0, 10 + 1):
+            arr = arr + [min1 + w * i]
+        arri=[]
+
+        for i in range(0, 10):
+            temp = []
+            for j in arr1:
+                if j >= arr[i] and j <= arr[i+1]:
+                    temp += [j]
+            arri += [temp]
+        print(arri)
+
+
     def eval_score(self, golds, preds):
         macro_f1 = f1_score(y_true=golds, y_pred=preds, average='macro')
         return macro_f1
-
 
     def _save_checkpoint(self, epoch: Union[int, str]) -> None:
         """
