@@ -196,6 +196,13 @@ class Trainer(TrainerBase):
         if self.training_arrangement == 'mixed':
             curriculum_type = 'none'
 
+        logger.info('Class Weighting strategy for loss function is %s', str(self.model.class_weight_strategy))
+        if self.model.class_weight_strategy is not None and self.model.class_weight_strategy.lower() != "none":
+            class_weights = self.calculate_class_weights(self.model.class_weight_strategy)
+            self.model.loss = torch.nn.CrossEntropyLoss(weight=nn_util.move_to_device(torch.Tensor(class_weights), self._cuda_devices[0]))
+
+            self.model.class_weights = class_weights
+
         if patience is None:  # no early stopping
             if validation_dataset:
                 logger.warning('You provided a validation dataset but patience was set to None, '
@@ -259,6 +266,37 @@ class Trainer(TrainerBase):
                                      augment_data=self.augment_data,
                                      num_stages=10, cl_type=curriculum_type, init_stage_till_convergence=curriculum_init_train_till_convergence)
 
+    def calculate_class_weights(self, strategy):
+
+        if strategy is None:
+            return None
+        if strategy.lower() == "none":
+            return None
+        logger.info('Size of training data %s', len(self.train_data))
+        label_size_dict = {}
+        all_data = []
+        all_data.extend(self.train_data)
+        if strategy.lower() == 'after_augmentation_ratio' and self.augment_data is not None:
+            all_data.extend(self.augment_data)
+        for ex in all_data:
+            label = self.model.vocab.get_token_index(ex['label'].label, namespace="labels")
+            if label not in label_size_dict:
+                label_size_dict[label] = 0
+            label_size_dict[label] +=1
+        total = len(all_data)
+        print('Label to Size dict is ')
+        print(label_size_dict)
+        class_weights = [1]*(len(label_size_dict))
+        for key, val in label_size_dict.items():
+            if val > 0:
+                label_weight = (1 / val) * (total / 2.0) # https://www.tensorflow.org/tutorials/structured_data/imbalanced_data#class_weights
+            else:
+                label_weight = 0.0
+            class_weights[key] = label_weight
+        print('Class Weights are ')
+        print(class_weights)
+        return class_weights
+
     def rescale_gradients(self) -> Optional[float]:
         return training_util.rescale_gradients(self.model, self._grad_norm)
 
@@ -320,7 +358,6 @@ class Trainer(TrainerBase):
         elif self.training_arrangement == 'curriculum':
             logger.info('Running curriculum learning')
             all_data = self.curriculum.function()
-
         logger.info('Total number of training examples (including any augmentation examples if present) %s', str(len(all_data)))
         #raw_train_generator = self.iterator(self.train_data,
         #                                    num_epochs=1,
